@@ -290,10 +290,15 @@ main {
 }
 
 .scene-canvas,
+.scene-canvas-container,
 .scene-fallback {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.scene-canvas-container {
+  touch-action: pan-y;
 }
 
 .scene-canvas {

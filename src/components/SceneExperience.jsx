@@ -11,41 +11,35 @@ function supportsWebGL() {
   )
 }
 
-function shouldUseFallback() {
+function prefersReducedMotion() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return true
   }
 
-  const reducedMotion = window.matchMedia(
-    '(prefers-reduced-motion: reduce)',
-  ).matches
-  const limitedMemory =
-    typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4
-  const limitedCores =
-    typeof navigator.hardwareConcurrency === 'number' &&
-    navigator.hardwareConcurrency <= 4
-
-  return !supportsWebGL() || reducedMotion || limitedMemory || limitedCores
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export default function SceneExperience() {
-  const [useFallback, setUseFallback] = useState(shouldUseFallback)
+  const [useFallback] = useState(() => !supportsWebGL())
+  const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion)
 
   useEffect(() => {
     const motionPreference = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     )
-    const updateRenderingMode = () => setUseFallback(shouldUseFallback())
+    const updateMotionPreference = () =>
+      setReducedMotion(motionPreference.matches)
 
-    motionPreference.addEventListener('change', updateRenderingMode)
-    return () => motionPreference.removeEventListener('change', updateRenderingMode)
+    motionPreference.addEventListener('change', updateMotionPreference)
+    return () =>
+      motionPreference.removeEventListener('change', updateMotionPreference)
   }, [])
 
   if (useFallback) return <StaticMechanicalScene />
 
   return (
     <Suspense fallback={<StaticMechanicalScene />}>
-      <MechanicalScene />
+      <MechanicalScene reducedMotion={reducedMotion} />
     </Suspense>
   )
 }
