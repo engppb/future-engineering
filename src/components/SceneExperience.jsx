@@ -1,15 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import StaticMechanicalScene from './StaticMechanicalScene'
+import { supportsWebGL } from './webglSupport'
 
 const MechanicalScene = lazy(() => import('./MechanicalScene'))
-
-function supportsWebGL() {
-  const canvas = document.createElement('canvas')
-  return Boolean(
-    canvas.getContext('webgl2', { powerPreference: 'low-power' }) ||
-      canvas.getContext('webgl', { powerPreference: 'low-power' }),
-  )
-}
 
 function prefersReducedMotion() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
@@ -19,7 +12,7 @@ function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-export default function SceneExperience() {
+export default function SceneExperience({ active = true }) {
   const [useFallback] = useState(() => !supportsWebGL())
   const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion)
 
@@ -39,7 +32,7 @@ export default function SceneExperience() {
 
   return (
     <Suspense fallback={<StaticMechanicalScene />}>
-      <MechanicalScene reducedMotion={reducedMotion} />
+      <MechanicalScene active={active} reducedMotion={reducedMotion} />
     </Suspense>
   )
 }

@@ -321,7 +321,10 @@ function MobileFrameScheduler({ enabled }) {
   return null
 }
 
-export default function MechanicalScene({ reducedMotion = false }) {
+export default function MechanicalScene({
+  active = true,
+  reducedMotion = false,
+}) {
   const blueLightRef = useRef(null)
   const warmLightRef = useRef(null)
   const invalidateRef = useRef(() => {})
@@ -348,6 +351,7 @@ export default function MechanicalScene({ reducedMotion = false }) {
   useEffect(() => {
     const orientationApi = window.DeviceOrientationEvent
     if (
+      !active ||
       reducedMotion ||
       typeof orientationApi === 'undefined' ||
       typeof orientationApi.requestPermission === 'function'
@@ -378,7 +382,11 @@ export default function MechanicalScene({ reducedMotion = false }) {
     window.addEventListener('deviceorientation', handleOrientation)
     return () =>
       window.removeEventListener('deviceorientation', handleOrientation)
-  }, [reducedMotion])
+  }, [active, reducedMotion])
+
+  useEffect(() => {
+    if (active) invalidateRef.current()
+  }, [active])
 
   const handlePointerDown = (event) => {
     if (event.pointerType !== 'touch') return
@@ -425,7 +433,7 @@ export default function MechanicalScene({ reducedMotion = false }) {
         className="scene-canvas"
         camera={{ position: [0, 0, 6.25], fov: 36 }}
         dpr={isMobile ? 1 : [1, 1.5]}
-        frameloop={isMobile || reducedMotion ? 'demand' : 'always'}
+        frameloop={!active || isMobile || reducedMotion ? 'demand' : 'always'}
         gl={{
           alpha: true,
           antialias: !isMobile,
@@ -436,7 +444,7 @@ export default function MechanicalScene({ reducedMotion = false }) {
         }}
         aria-label="Visualização 3D de engrenagens metálicas interligadas"
       >
-        <MobileFrameScheduler enabled={isMobile && !reducedMotion} />
+        <MobileFrameScheduler enabled={active && isMobile && !reducedMotion} />
         <ambientLight intensity={1.15} />
         <directionalLight
           position={[-3.5, 4.5, 5]}

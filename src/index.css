@@ -13,6 +13,7 @@
   --color-graphite: #0b0e11;
   --color-steel: #8daabd;
   --color-safety: #d2a847;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 * {

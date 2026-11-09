@@ -91,28 +91,43 @@ function ProcessArtwork() {
 function FleetArtwork() {
   return (
     <>
-      <path d="M75 354h438" className="visual-structure" />
-      <path d="M105 273h124l34 42v39H105z" className="visual-vehicle" />
-      <path d="M229 282h-42v32h69m-141 0h30" className="visual-window" />
-      <path d="M269 287h128l36 39v28H269z" className="visual-vehicle-secondary" />
-      <path d="M392 296h-44v28h70m-128 0h25" className="visual-window" />
-      <path d="M421 302h52l29 31v21h-81z" className="visual-vehicle" />
-      <path d="M463 310h-25v22h43z" className="visual-window" />
-      <circle cx="153" cy="355" r="20" className="visual-wheel" />
-      <circle cx="153" cy="355" r="8" className="visual-wheel-hub" />
-      <circle cx="221" cy="355" r="20" className="visual-wheel" />
-      <circle cx="221" cy="355" r="8" className="visual-wheel-hub" />
-      <circle cx="316" cy="355" r="20" className="visual-wheel" />
-      <circle cx="316" cy="355" r="8" className="visual-wheel-hub" />
-      <circle cx="386" cy="355" r="20" className="visual-wheel" />
-      <circle cx="386" cy="355" r="8" className="visual-wheel-hub" />
-      <circle cx="454" cy="355" r="17" className="visual-wheel" />
-      <circle cx="454" cy="355" r="7" className="visual-wheel-hub" />
+      <g className="fleet-industrial-parallax">
+        <path d="M61 351V282h73v69m14 0V252h98v99m25 0v-58h72v58m24 0v-91h87v91" className="visual-structure" />
+        <path d="M74 300h18m-18 12h38m-25-49h14m-14 12h33m-16-16v-7m8 7v-7m23 51h24m-24 12h24m-13-42h12m-12 12h12m-12 12h12m-12 12h12m97-39h17m-17 12h17m-17 12h17m-17 12h17m26-28h18m-18 12h18m-18 12h18m-18 12h18" className="visual-edge" />
+        <path d="M44 391h480" className="visual-grid-line" />
+      </g>
+      <path d="M75 354h438" className="visual-structure fleet-road" />
+      <path d="M82 372h42m26 0h42m26 0h42m26 0h42m26 0h42m26 0h42m26 0h42" className="fleet-road-markings" />
+      <g className="fleet-convoy">
+        <path d="M105 273h124l34 42v39H105z" className="visual-vehicle" />
+        <path d="M229 282h-42v32h69m-141 0h30" className="visual-window" />
+        <path d="M269 287h128l36 39v28H269z" className="visual-vehicle-secondary" />
+        <path d="M392 296h-44v28h70m-128 0h25" className="visual-window" />
+        <path d="M421 302h52l29 31v21h-81z" className="visual-vehicle" />
+        <path d="M463 310h-25v22h43z" className="visual-window" />
+        {[153, 221, 316, 386].map((x) => (
+          <g className="fleet-wheel" key={x}>
+            <circle cx={x} cy="355" r="20" className="visual-wheel" />
+            <path d={`M${x} 339v32m-16-16h32m-27-11 22 22m0-22-22 22`} className="fleet-wheel-spokes" />
+            <circle cx={x} cy="355" r="6" className="visual-wheel-hub" />
+          </g>
+        ))}
+        <g className="fleet-wheel fleet-wheel-small">
+          <circle cx="454" cy="355" r="17" className="visual-wheel" />
+          <path d="M454 341v28m-14-14h28m-24-10 20 20m0-20-20 20" className="fleet-wheel-spokes" />
+          <circle cx="454" cy="355" r="5" className="visual-wheel-hub" />
+        </g>
+      </g>
       <path d="M102 244h91m-91 12h54" className="visual-blue-line" />
       <path d="M433 239h51v38h-51z" className="visual-panel" />
       <path d="M446 264l9-10 8 6 10-13" className="visual-chart" />
       <circle cx="476" cy="247" r="4" className="visual-gold" />
       <path d="M113 386h365" className="visual-edge" />
+      <g className="fleet-inspection-marker">
+        <circle cx="316" cy="314" r="35" />
+        <path d="M316 268v12m0 68v12m-46-46h12m68 0h12" />
+        <path d="M346 283l25-25m-13 0h13v13" />
+      </g>
     </>
   )
 }
@@ -125,15 +140,114 @@ const artworkByService = [
   FleetArtwork,
 ]
 
-export default function ServiceVisual({ index, title }) {
+export default function ServiceVisual({
+  index,
+  panelNumber = index + 1,
+  title,
+  active = false,
+}) {
   const Artwork = artworkByService[index]
+  const [webglAvailable] = useState(supportsWebGL)
+  const [sceneReady, setSceneReady] = useState(false)
+  const [sceneVisible, setSceneVisible] = useState(active)
+  const [selectedComponent, setSelectedComponent] = useState(null)
+  const interactionRef = useRef({ x: 0, y: 0, active: false })
+  const visualRef = useRef(null)
+  const componentDetails = componentDetailsByService[index] ?? []
+
+  const showThreeDimensionalScene =
+    (active || sceneVisible) && index !== 4 && webglAvailable
+
+  useEffect(() => {
+    if (active || !sceneVisible) return undefined
+
+    const timer = window.setTimeout(() => {
+      setSceneVisible(false)
+      setSceneReady(false)
+    }, 1550)
+
+    return () => window.clearTimeout(timer)
+  }, [active, sceneVisible])
+
+  useEffect(() => {
+    interactionRef.current.active = false
+  }, [active, index])
+
+  useEffect(() => {
+    function handleGlobalPointerMove(event) {
+      const visual = visualRef.current
+      if (!visual) return
+      const bounds = visual.getBoundingClientRect()
+      const inside =
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY <= bounds.bottom
+
+      interactionRef.current = {
+        x: ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+        y: 1 - ((event.clientY - bounds.top) / bounds.height) * 2,
+        active: inside,
+      }
+    }
+
+    function handleGlobalPointerEnd() {
+      interactionRef.current.active = false
+    }
+
+    window.addEventListener('pointermove', handleGlobalPointerMove, {
+      passive: true,
+    })
+    window.addEventListener('pointerup', handleGlobalPointerEnd)
+    window.addEventListener('pointercancel', handleGlobalPointerEnd)
+    return () => {
+      window.removeEventListener('pointermove', handleGlobalPointerMove)
+      window.removeEventListener('pointerup', handleGlobalPointerEnd)
+      window.removeEventListener('pointercancel', handleGlobalPointerEnd)
+    }
+  }, [])
+
+  function updatePointer(event) {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    interactionRef.current = {
+      x: ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+      y: 1 - ((event.clientY - bounds.top) / bounds.height) * 2,
+      active: true,
+    }
+  }
+
+  function releasePointer() {
+    interactionRef.current.active = false
+  }
 
   return (
-    <div className={`service-visual service-visual-${index + 1}`}>
+    <div
+      ref={visualRef}
+      className={`service-visual service-visual-${index + 1}${sceneReady && sceneVisible ? ' has-3d-scene' : ''}`}
+      onPointerMove={updatePointer}
+      onPointerDown={updatePointer}
+      onPointerUp={releasePointer}
+      onPointerCancel={releasePointer}
+      onPointerLeave={releasePointer}
+    >
       <div className="service-visual-grid" aria-hidden="true" />
+      {showThreeDimensionalScene && (
+        <Suspense fallback={null}>
+          <ServiceScene3D
+            index={index}
+            active={active || sceneVisible}
+            interactionRef={interactionRef}
+            onReady={() => {
+              setSceneReady(true)
+              setSceneVisible(true)
+            }}
+          />
+        </Suspense>
+      )}
       <svg
-        className="service-visual-art"
+        className={`service-visual-art${index === 4 ? ' fleet-visual-art' : ''}`}
         viewBox="0 0 560 460"
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label={`Ilustração técnica de ${title.toLowerCase()}`}
       >
@@ -171,13 +285,143 @@ export default function ServiceVisual({ index, title }) {
           <Artwork />
         </g>
         <text x="84" y="431" className="visual-caption">
-          PA / ENGINEERING — {String(index + 1).padStart(2, '0')}
+          PA / ENGINEERING — {String(panelNumber).padStart(2, '0')}
         </text>
       </svg>
+      {componentDetails.map((component, componentIndex) => {
+        const selectedComponentIndex =
+          selectedComponent?.serviceIndex === index
+            ? selectedComponent.componentIndex
+            : null
+        const isSelected = selectedComponentIndex === componentIndex
+        const detailId = `component-info-${index}-${componentIndex}`
+        return (
+          <button
+            key={component.label}
+            className={`scene-hotspot${isSelected ? ' is-selected' : ''}`}
+            type="button"
+            style={{ '--hotspot-x': `${component.x}%`, '--hotspot-y': `${component.y}%` }}
+            aria-label={`${component.label}: ver informação técnica`}
+            aria-expanded={active && isSelected}
+            aria-controls={detailId}
+            onClick={() =>
+              setSelectedComponent(
+                isSelected ? null : { serviceIndex: index, componentIndex },
+              )
+            }
+          >
+            <span className="scene-hotspot-pulse" aria-hidden="true" />
+          </button>
+        )
+      })}
+      {active &&
+        selectedComponent?.serviceIndex === index &&
+        componentDetails[selectedComponent.componentIndex] && (
+        <div
+          className="scene-hotspot-detail"
+          id={`component-info-${index}-${selectedComponent.componentIndex}`}
+          role="status"
+        >
+          <span>{componentDetails[selectedComponent.componentIndex].label}</span>
+          <p>{componentDetails[selectedComponent.componentIndex].detail}</p>
+        </div>
+      )}
       <span className="service-visual-index" aria-hidden="true">
-        {String(index + 1).padStart(2, '0')} / 05
+        {String(panelNumber).padStart(2, '0')} / 06
       </span>
       <span className="service-visual-accent" aria-hidden="true" />
     </div>
   )
+}
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { supportsWebGL } from './webglSupport'
+
+const ServiceScene3D = lazy(() => import('./ServiceScene3D'))
+
+const componentDetailsByService = {
+  0: [
+    {
+      label: 'Engrenagens',
+      detail:
+        'Conjuntos dentados transmitem torque e sincronizam o movimento entre eixos.',
+      x: 43,
+      y: 38,
+    },
+    {
+      label: 'Rolamento',
+      detail:
+        'Apoia o eixo e reduz o atrito durante a rotação do conjunto mecânico.',
+      x: 27,
+      y: 27,
+    },
+  ],
+  1: [
+    {
+      label: 'Roletes',
+      detail:
+        'Roletes transversais apoiam a carga e acompanham o avanço da esteira.',
+      x: 45,
+      y: 57,
+    },
+    {
+      label: 'Motor e redutor',
+      detail:
+        'O conjunto motriz fornece rotação à linha por meio do acionamento da esteira.',
+      x: 82,
+      y: 71,
+    },
+    {
+      label: 'Monitor de produção',
+      detail:
+        'Indicadores visuais representam o acompanhamento do fluxo operacional.',
+      x: 81,
+      y: 29,
+    },
+  ],
+  2: [
+    {
+      label: 'Capacete',
+      detail:
+        'Equipamento de proteção individual para a cabeça, selecionado conforme o risco.',
+      x: 43,
+      y: 24,
+    },
+    {
+      label: 'Óculos de proteção',
+      detail:
+        'A proteção ocular deve ser compatível com os riscos identificados na atividade.',
+      x: 31,
+      y: 43,
+    },
+    {
+      label: 'Colete refletivo',
+      detail:
+        'Faixas refletivas favorecem a visibilidade do trabalhador no ambiente.',
+      x: 69,
+      y: 48,
+    },
+    {
+      label: 'Luvas e botas',
+      detail:
+        'A seleção desses EPIs depende do risco de contato, impacto e condição do piso.',
+      x: 32,
+      y: 72,
+    },
+  ],
+  4: [
+    {
+      label: 'Conjunto rodante',
+      detail:
+        'O acompanhamento visual das rodas ajuda a identificar sinais que merecem inspeção.',
+      x: 51,
+      y: 77,
+    },
+    {
+      label: 'Ponto de inspeção',
+      detail:
+        'O marcador destaca uma área ilustrativa para verificação técnica do veículo.',
+      x: 57,
+      y: 68,
+    },
+  ],
 }
