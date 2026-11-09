@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { supportsWebGL } from './webglSupport'
 
@@ -44,6 +45,79 @@ function createSurfaceTexture(size, baseValue, variation, seed) {
 const METAL_ROUGHNESS_MAP = createSurfaceTexture(128, 218, 34, 3)
 const METAL_DETAIL_MAP = createSurfaceTexture(128, 128, 38, 17)
 
+function sceneTime() {
+  return performance.now() / 1000
+}
+
+function LicensedModel({
+  asset,
+  position,
+  maxDimension,
+  rotation = [0, 0, 0],
+  reducedMotion,
+  motion = 'float',
+  phase = 0,
+}) {
+  const { scene } = useGLTF(
+    `/models/polyhaven/${asset}/${asset}_1k.gltf`,
+  )
+  const modelRef = useRef(null)
+  const model = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.updateMatrixWorld(true)
+    const bounds = new THREE.Box3().setFromObject(clone)
+    const dimensions = bounds.getSize(new THREE.Vector3())
+    const center = bounds.getCenter(new THREE.Vector3())
+    const largestDimension = Math.max(
+      dimensions.x,
+      dimensions.y,
+      dimensions.z,
+    )
+
+    clone.position.sub(center)
+    clone.traverse((object) => {
+      if (object.isMesh) {
+        object.castShadow = true
+        object.receiveShadow = true
+      }
+    })
+
+    return {
+      object: clone,
+      scale: largestDimension > 0 ? maxDimension / largestDimension : 1,
+    }
+  }, [maxDimension, scene])
+
+  useFrame((_, delta) => {
+    if (!modelRef.current || reducedMotion || motion === 'static') return
+
+    const time = sceneTime() + phase
+    const frameDelta = Math.min(delta, 0.05)
+    const float = Math.sin(time * 0.42) * 0.025
+    const sway = Math.sin(time * 0.28) * 0.045
+    const nextRotationY = rotation[1] + Math.sin(time * 0.21) * 0.045
+
+    modelRef.current.position.y = THREE.MathUtils.damp(
+      modelRef.current.position.y,
+      position[1] + (motion === 'sway' ? sway : float),
+      1.8,
+      frameDelta,
+    )
+    modelRef.current.rotation.y = THREE.MathUtils.damp(
+      modelRef.current.rotation.y,
+      nextRotationY,
+      1.5,
+      frameDelta,
+    )
+  })
+
+  return (
+    <group ref={modelRef} position={position} rotation={rotation}>
+      <primitive object={model.object} scale={model.scale} />
+    </group>
+  )
+}
+
 function createGearShape(teeth, outerRadius, rootRadius, holeRadius) {
   const shape = new THREE.Shape()
   for (let tooth = 0; tooth < teeth; tooth += 1) {
@@ -71,14 +145,18 @@ function Gear({ radius, teeth, position, speed, reducedMotion }) {
     [radius, teeth],
   )
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     if (!reducedMotion && gearRef.current) {
-      gearRef.current.rotation.z += speed * Math.min(delta, 0.05)
+      gearRef.current.rotation.z = speed * sceneTime()
     }
   })
 
   return (
-    <group ref={gearRef} position={position}>
+    <group
+      ref={gearRef}
+      position={position}
+      rotation={[0, 0, reducedMotion ? 0 : speed * sceneTime()]}
+    >
       <mesh position={[0, 0, -0.08]} castShadow>
         <extrudeGeometry
           args={[
@@ -133,16 +211,26 @@ function Gear({ radius, teeth, position, speed, reducedMotion }) {
 
 function Bearing({ position, radius = 0.34, reducedMotion }) {
   const bearingRef = useRef(null)
-  useFrame((state, delta) => {
+  useFrame(() => {
     if (!reducedMotion && bearingRef.current) {
-      bearingRef.current.rotation.y += delta * 0.12
+      bearingRef.current.rotation.y = sceneTime() * 0.12
       bearingRef.current.position.y =
-        position[1] + Math.sin(state.clock.elapsedTime * 0.7 + position[0]) * 0.035
+        position[1] + Math.sin(sceneTime() * 0.7 + position[0]) * 0.035
     }
   })
 
+  const initialTime = sceneTime()
   return (
-    <group ref={bearingRef} position={position}>
+    <group
+      ref={bearingRef}
+      position={[
+        position[0],
+        position[1] +
+          (reducedMotion ? 0 : Math.sin(initialTime * 0.7 + position[0]) * 0.035),
+        position[2],
+      ]}
+      rotation={[0, reducedMotion ? 0 : initialTime * 0.12, 0]}
+    >
       <mesh>
         <torusGeometry args={[radius, 0.075, 16, 56]} />
         <meshStandardMaterial
@@ -182,44 +270,14 @@ function Bearing({ position, radius = 0.34, reducedMotion }) {
   )
 }
 
-function Shaft({ position, length = 2.4, radius = 0.08, reducedMotion }) {
-  const shaftRef = useRef(null)
-  useFrame((_, delta) => {
-    if (!reducedMotion && shaftRef.current) {
-      shaftRef.current.rotation.z += delta * 0.32
-    }
-  })
-  return (
-    <group ref={shaftRef} position={position}>
-      <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <cylinderGeometry args={[radius, radius, length, 32]} />
-        <meshStandardMaterial
-          color="#aebbc1"
-          metalness={0.92}
-          roughness={0.2}
-          roughnessMap={METAL_ROUGHNESS_MAP}
-          bumpMap={METAL_DETAIL_MAP}
-          bumpScale={0.006}
-        />
-      </mesh>
-      {[-0.7, 0.7].map((x) => (
-        <mesh key={x} position={[x, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[radius * 1.55, radius * 1.55, 0.09, 32]} />
-          <meshStandardMaterial color={GOLD} metalness={0.78} roughness={0.28} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
 function EngineeringAssembly({ reducedMotion }) {
   const assemblyRef = useRef(null)
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!reducedMotion && assemblyRef.current) {
       assemblyRef.current.rotation.y =
-        Math.sin(state.clock.elapsedTime * 0.28) * 0.08
+        Math.sin(sceneTime() * 0.28) * 0.08
       assemblyRef.current.position.y =
-        Math.sin(state.clock.elapsedTime * 0.48) * 0.035
+        Math.sin(sceneTime() * 0.48) * 0.035
       assemblyRef.current.rotation.x = THREE.MathUtils.damp(
         assemblyRef.current.rotation.x,
         0.08,
@@ -228,28 +286,45 @@ function EngineeringAssembly({ reducedMotion }) {
       )
     }
   })
+  const initialTime = sceneTime()
   return (
-    <group ref={assemblyRef} rotation={[0.08, -0.12, -0.06]} scale={0.96}>
-      <Gear
-        teeth={18}
-        radius={0.82}
-        position={[-0.65, 0.2, 0]}
-        speed={0.34}
+    <group
+      ref={assemblyRef}
+      position={[0, reducedMotion ? 0 : Math.sin(initialTime * 0.48) * 0.035, 0]}
+      rotation={[
+        0.08,
+        reducedMotion ? -0.12 : Math.sin(initialTime * 0.28) * 0.08,
+        -0.06,
+      ]}
+    >
+      <LicensedModel
+        asset="drill_press_01"
+        position={[-0.68, -0.12, -0.15]}
+        maxDimension={2.55}
+        rotation={[0, -0.32, 0]}
         reducedMotion={reducedMotion}
+        motion="sway"
+      />
+      <LicensedModel
+        asset="portable_generator"
+        position={[0.9, -0.62, 0.28]}
+        maxDimension={1.35}
+        rotation={[0, 0.3, 0]}
+        reducedMotion={reducedMotion}
+        phase={1.7}
       />
       <Gear
-        teeth={12}
-        radius={0.56}
-        position={[0.72, -0.25, 0.05]}
-        speed={-0.51}
+        teeth={14}
+        radius={0.38}
+        position={[0.48, 0.5, 0.38]}
+        speed={0.22}
         reducedMotion={reducedMotion}
       />
-      <Bearing position={[-0.9, 0.82, 0.08]} radius={0.26} reducedMotion={reducedMotion} />
-      <Shaft position={[0.1, -0.94, -0.12]} reducedMotion={reducedMotion} />
-      <mesh position={[0.05, 0.94, -0.34]} rotation={[0, 0, -0.15]}>
-        <boxGeometry args={[2.1, 0.08, 0.14]} />
-        <meshStandardMaterial color={DARK_STEEL} metalness={0.78} roughness={0.3} />
-      </mesh>
+      <Bearing
+        position={[0.98, 0.7, 0.22]}
+        radius={0.16}
+        reducedMotion={reducedMotion}
+      />
       <pointLight position={[-1.3, 1.2, 1]} color={BLUE} intensity={3} distance={4} />
     </group>
   )
@@ -430,12 +505,11 @@ function OperationsAssembly({ reducedMotion }) {
   const rollerCount = 10
   const loadTravel = 3.1
 
-  useFrame((state, delta) => {
+  useFrame(() => {
     if (reducedMotion) return
-    const elapsed = state.clock.elapsedTime
-    const frameDelta = Math.min(delta, 0.05)
+    const elapsed = sceneTime()
     rollersRef.current.forEach((roller) => {
-      if (roller) roller.rotation.z -= frameDelta * 2.8
+      if (roller) roller.rotation.z = -elapsed * 2.8
     })
     loadsRef.current.forEach((load, index) => {
       if (load) {
@@ -509,6 +583,7 @@ function OperationsAssembly({ reducedMotion }) {
                   rollersRef.current[index] = roller
                 }}
                 position={[x, -0.045, 0]}
+                rotation={[0, 0, -sceneTime() * 2.8]}
               >
                 <mesh rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
                   <cylinderGeometry args={[0.095, 0.095, 1.12, 28]} />
@@ -545,13 +620,27 @@ function OperationsAssembly({ reducedMotion }) {
             ref={(load) => {
               loadsRef.current[index] = load
             }}
-            position={[-1.55 + (index * loadTravel) / 3, 0, 0]}
+            position={[
+              -loadTravel / 2 +
+                ((sceneTime() * 0.28 + (index * loadTravel) / 3) % loadTravel),
+              0,
+              0,
+            ]}
           >
             <ProductionLoad variant={index} />
           </group>
       ))}
       <DriveMotor />
       <LineMonitor />
+      <LicensedModel
+        asset="overhead_crane"
+        position={[0, 0.45, -0.75]}
+        maxDimension={2.3}
+        rotation={[0, -0.08, 0]}
+        reducedMotion={reducedMotion}
+        motion="sway"
+        phase={0.6}
+      />
       <directionalLight position={[-3, 3.5, 4]} color="#eaf4f8" intensity={2.1} />
       <directionalLight position={[2.5, 1.5, -2]} color="#4d9fca" intensity={1.35} />
       <pointLight position={[-2.2, 2.4, 3.2]} color="#d7e8ee" intensity={2.2} distance={7} />
@@ -563,13 +652,14 @@ function OperationsAssembly({ reducedMotion }) {
 
 function SafetyHelmet({ position, reducedMotion }) {
   const ref = useRef(null)
-  useFrame((state) => {
+  useFrame(() => {
     if (!reducedMotion && ref.current) {
-      ref.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.45) * 0.18
+      ref.current.rotation.y = Math.sin(sceneTime() * 0.45) * 0.18
     }
   })
+  const initialRotation = reducedMotion ? 0 : Math.sin(sceneTime() * 0.45) * 0.18
   return (
-    <group ref={ref} position={position}>
+    <group ref={ref} position={position} rotation={[0, initialRotation, 0]}>
       <mesh position={[0, 0.1, 0]}>
         <sphereGeometry args={[0.42, 32, 20, 0, Math.PI * 2, 0, Math.PI * 0.57]} />
         <meshPhysicalMaterial color="#d8ae36" metalness={0.34} roughness={0.3} clearcoat={0.6} />
@@ -590,20 +680,30 @@ function SafetyHelmet({ position, reducedMotion }) {
   )
 }
 
-function SafetyGlasses() {
+function SafetyGlasses({ reducedMotion }) {
   const ref = useRef(null)
-  useFrame((state) => {
-    if (ref.current) {
+  const initialTime = sceneTime()
+  useFrame(() => {
+    if (!reducedMotion && ref.current) {
       ref.current.position.y =
-        0.18 + Math.sin(state.clock.elapsedTime * 0.56 + 0.8) * 0.035
-      ref.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.34) * 0.12
+        0.18 + Math.sin(sceneTime() * 0.56 + 0.8) * 0.035
+      ref.current.rotation.y = Math.sin(sceneTime() * 0.34) * 0.12
     }
   })
   return (
     <group
       ref={ref}
-      position={[-0.98, 0.18, 0.42]}
-      rotation={[0.08, 0.15, -0.08]}
+      position={[
+        -0.98,
+        0.18 +
+          (reducedMotion ? 0 : Math.sin(initialTime * 0.56 + 0.8) * 0.035),
+        0.42,
+      ]}
+      rotation={[
+        0.08,
+        reducedMotion ? 0.15 : Math.sin(initialTime * 0.34) * 0.12,
+        -0.08,
+      ]}
     >
       {[-0.21, 0.21].map((x) => (
         <group key={x} position={[x, 0, 0]}>
@@ -632,20 +732,32 @@ function SafetyGlasses() {
   )
 }
 
-function SafetyVest() {
+function SafetyVest({ reducedMotion }) {
   const ref = useRef(null)
-  useFrame((state) => {
-    if (ref.current) {
-      ref.current.rotation.y = -0.1 + Math.sin(state.clock.elapsedTime * 0.32 + 1.5) * 0.1
+  const initialTime = sceneTime()
+  useFrame(() => {
+    if (!reducedMotion && ref.current) {
+      ref.current.rotation.y = -0.1 + Math.sin(sceneTime() * 0.32 + 1.5) * 0.1
       ref.current.position.y =
-        0.02 + Math.sin(state.clock.elapsedTime * 0.48 + 1.5) * 0.04
+        0.02 + Math.sin(sceneTime() * 0.48 + 1.5) * 0.04
     }
   })
   return (
     <group
       ref={ref}
-      position={[0.76, 0.02, -0.16]}
-      rotation={[0.04, -0.1, -0.06]}
+      position={[
+        0.76,
+        0.02 +
+          (reducedMotion ? 0 : Math.sin(initialTime * 0.48 + 1.5) * 0.04),
+        -0.16,
+      ]}
+      rotation={[
+        0.04,
+        reducedMotion
+          ? -0.1
+          : -0.1 + Math.sin(initialTime * 0.32 + 1.5) * 0.1,
+        -0.06,
+      ]}
     >
       <mesh>
         <boxGeometry args={[0.62, 0.88, 0.17]} />
@@ -671,92 +783,51 @@ function SafetyVest() {
   )
 }
 
-function SafetyGlove() {
-  const ref = useRef(null)
-  useFrame((state) => {
-    if (ref.current) {
-      ref.current.rotation.z = 0.2 + Math.sin(state.clock.elapsedTime * 0.42 + 2.4) * 0.1
-      ref.current.position.y =
-        -0.72 + Math.sin(state.clock.elapsedTime * 0.58 + 2.4) * 0.045
-    }
-  })
+function SafetyGlove({ reducedMotion }) {
   return (
-    <group
-      ref={ref}
+    <LicensedModel
+      asset="garden_gloves_01"
       position={[-0.82, -0.72, 0.32]}
+      maxDimension={0.92}
       rotation={[0.1, 0.18, 0.2]}
-    >
-      <mesh position={[0, -0.05, 0]}>
-        <boxGeometry args={[0.36, 0.42, 0.16]} />
-        <meshStandardMaterial color="#37505c" metalness={0.32} roughness={0.52} />
-      </mesh>
-      {[-0.14, -0.045, 0.05, 0.145].map((x, index) => (
-        <mesh key={x} position={[x, 0.23 + (index === 1 || index === 2 ? 0.05 : 0), 0]}>
-          <capsuleGeometry args={[0.046, 0.21, 4, 8]} />
-          <meshStandardMaterial color="#8398a1" metalness={0.38} roughness={0.44} />
-        </mesh>
-      ))}
-      <mesh position={[0.23, -0.08, 0]} rotation={[0, 0, -0.7]}>
-        <capsuleGeometry args={[0.05, 0.19, 4, 8]} />
-        <meshStandardMaterial color="#8398a1" metalness={0.38} roughness={0.44} />
-      </mesh>
-    </group>
+      reducedMotion={reducedMotion}
+      phase={2.4}
+    />
   )
 }
 
 function SafetyBoot({ position, reducedMotion }) {
-  const ref = useRef(null)
-  const soleMaterial = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: '#28363e', metalness: 0.28, roughness: 0.55 }),
-    [],
-  )
-  const bootMaterial = useMemo(
-    () => new THREE.MeshPhysicalMaterial({ color: '#394951', metalness: 0.36, roughness: 0.36, clearcoat: 0.28 }),
-    [],
-  )
-  useFrame((state) => {
-    if (!reducedMotion && ref.current) {
-      ref.current.rotation.y =
-        -0.14 + Math.sin(state.clock.elapsedTime * 0.34 + 3.2) * 0.08
-      ref.current.position.y =
-        position[1] + Math.sin(state.clock.elapsedTime * 0.48 + 3.2) * 0.035
-    }
-  })
   return (
-    <group ref={ref} position={position} rotation={[0.02, -0.14, 0]}>
-      <mesh position={[0, -0.22, 0]}>
-        <boxGeometry args={[0.7, 0.14, 0.34]} />
-        <primitive object={soleMaterial} attach="material" />
-      </mesh>
-      <mesh position={[-0.07, 0.04, -0.02]}>
-        <boxGeometry args={[0.42, 0.46, 0.29]} />
-        <primitive object={bootMaterial} attach="material" />
-      </mesh>
-      <mesh position={[0.14, -0.14, 0.12]}>
-        <boxGeometry args={[0.38, 0.17, 0.19]} />
-        <primitive object={bootMaterial} attach="material" />
-      </mesh>
-      <mesh position={[0.16, -0.04, 0.225]}>
-        <boxGeometry args={[0.24, 0.11, 0.025]} />
-        <meshStandardMaterial color={STEEL} metalness={0.8} roughness={0.22} />
-      </mesh>
-    </group>
+    <LicensedModel
+      asset="rubber_boots"
+      position={position}
+      maxDimension={1.15}
+      rotation={[0.02, -0.14, 0]}
+      reducedMotion={reducedMotion}
+      phase={3.2}
+    />
   )
 }
 
 function SafetyAssembly({ reducedMotion }) {
   const assemblyRef = useRef(null)
-  useFrame((state) => {
+  const initialTime = sceneTime()
+  useFrame(() => {
     if (!reducedMotion && assemblyRef.current) {
-      assemblyRef.current.position.y = Math.sin(state.clock.elapsedTime * 0.42) * 0.035
+      assemblyRef.current.position.y = Math.sin(sceneTime() * 0.42) * 0.035
     }
   })
   return (
-    <group ref={assemblyRef} rotation={[0.04, -0.12, 0]} scale={0.95}>
+    <group
+      ref={assemblyRef}
+      position={[0, reducedMotion ? 0 : Math.sin(initialTime * 0.42) * 0.035, 0]}
+      rotation={[0.04, -0.12, 0]}
+      scale={0.95}
+    >
       <SafetyHelmet position={[-0.28, 0.68, 0]} reducedMotion={reducedMotion} />
-      <SafetyGlasses />
-      <SafetyVest />
-      <SafetyGlove />
+      <SafetyGlasses reducedMotion={reducedMotion} />
+      <SafetyVest reducedMotion={reducedMotion} />
+      <SafetyGlove reducedMotion={reducedMotion} />
       <SafetyBoot
         position={[0.65, -0.7, 0.34]}
         reducedMotion={reducedMotion}
@@ -817,9 +888,9 @@ function SceneContent({ index, reducedMotion, shadows, interactionRef }) {
     camera.updateProjectionMatrix()
   }, [camera, index, size.height, size.width])
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (reducedMotion || !sceneRef.current) return
-    const sway = Math.sin(state.clock.elapsedTime * 0.24) * 0.045
+    const sway = Math.sin(sceneTime() * 0.24) * 0.045
     const pointer = interactionRef.current
     const pointerX = pointer.active ? pointer.x : 0
     const pointerY = pointer.active ? pointer.y : 0
@@ -961,11 +1032,11 @@ function ContactAssembly({ reducedMotion }) {
   const ringRef = useRef(null)
   const gearShape = useMemo(() => createGearShape(24, 0.9, 0.72, 0.22), [])
 
-  useFrame((state, delta) => {
+  useFrame(() => {
     if (reducedMotion) return
-    const frameDelta = Math.min(delta, 0.05)
-    if (gearRef.current) gearRef.current.rotation.z += frameDelta * 0.18
-    if (ringRef.current) ringRef.current.rotation.z -= frameDelta * 0.08
+    const time = sceneTime()
+    if (gearRef.current) gearRef.current.rotation.z = time * 0.18
+    if (ringRef.current) ringRef.current.rotation.z = -time * 0.08
   })
 
   return (
@@ -974,7 +1045,11 @@ function ContactAssembly({ reducedMotion }) {
         <cylinderGeometry args={[0.19, 0.19, 1.8, 32]} />
         <meshStandardMaterial color="#71838d" metalness={0.9} roughness={0.24} />
       </mesh>
-      <group ref={gearRef} position={[-0.2, 0, 0]}>
+      <group
+        ref={gearRef}
+        position={[-0.2, 0, 0]}
+        rotation={[0, 0, reducedMotion ? 0 : sceneTime() * 0.18]}
+      >
         <mesh>
           <extrudeGeometry
             args={[
@@ -1000,7 +1075,11 @@ function ContactAssembly({ reducedMotion }) {
           <meshStandardMaterial color="#4d9fca" metalness={0.86} roughness={0.2} />
         </mesh>
       </group>
-      <mesh ref={ringRef} position={[0.68, 0.55, -0.02]}>
+      <mesh
+        ref={ringRef}
+        position={[0.68, 0.55, -0.02]}
+        rotation={[0, 0, reducedMotion ? 0 : -sceneTime() * 0.08]}
+      >
         <torusGeometry args={[0.36, 0.065, 16, 56]} />
         <meshStandardMaterial
           color="#d2a847"
